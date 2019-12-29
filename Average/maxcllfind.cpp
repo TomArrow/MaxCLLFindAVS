@@ -328,21 +328,39 @@ private:
   decltype(&dofindmaxcll_c<uint8_t, 8>) processor_32aligned_;
 };
 
+std::string statsFileName = "";
+
+void writeCLLStats() {
+
+	if (statsFileName == "") {
+		FILE* test;
+		int counter = 0;
+		while (test = fopen((statsFileName = "MaxCLLFind_Results" + std::to_string(counter) + ".txt").c_str() , "r")) {
+			fclose(test);
+			counter++;
+		}
+		//statsFileName = "MaxCLLFind_Results" + std::to_string(counter) + ".txt";
+	}
+
+	float FALLAverage = FALLSum / (long double)framesCounted;
+
+	std::ofstream myfile;
+	myfile.open(statsFileName, std::ios::out | std::ios::app);
+	myfile << "Stats at frame " << framesCounted << ":\n";
+	myfile << "MaxCLL: " << highestnits << ", raw value: " << highestrawvalue << " " << highestFloatvalue << " at X " << highestValueX << " Y " << highestValueY << " at frame " << highestFrame << /*" byte depth: " << sizeof(pixel_t) <<*/ "\n";
+	myfile << "MinCLL: " << lowestnits << ", raw value: " << lowestrawvalue << " " << lowestFloatvalue << " at X " << lowestValueX << " Y " << lowestValueY << " at frame " << lowestFrame << /*" byte depth: " << sizeof(pixel_t) <<*/ "\n";
+	myfile << "MaxFALL: " << MaxFALL << " at frame " << MaxFALLFrame << "\n";
+	myfile << "FALL Average: " << FALLAverage << " across " << framesCounted << " frames.\n\n";
+	//myfile << "Dims: " << width << "x" << height;
+	myfile.close();
+}
+
 
 MaxCLLFind::~MaxCLLFind() {
 
 	delete[] nitArray;
 
-	float FALLAverage = FALLSum / (long double) framesCounted;
-
-	std::ofstream myfile;
-	myfile.open("MaxCLLFind_Results" + std::to_string(fileWriteCounter++) + ".txt");
-	myfile << "MaxCLL: " << highestnits << ", raw value: " << highestrawvalue << " " << highestFloatvalue << " at X " << highestValueX << " Y " << highestValueY << " at frame " << highestFrame << /*" byte depth: " << sizeof(pixel_t) <<*/ "\n";
-	myfile << "MinCLL: " << lowestnits << ", raw value: " << lowestrawvalue << " " << lowestFloatvalue << " at X " << lowestValueX << " Y " << lowestValueY << " at frame " << lowestFrame << /*" byte depth: " << sizeof(pixel_t) <<*/ "\n";
-	myfile << "MaxFALL: " << MaxFALL << " at frame " << MaxFALLFrame << "\n";
-	myfile << "FALL Average: " << FALLAverage << " across " << framesCounted << " frames.\n";
-	//myfile << "Dims: " << width << "x" << height;
-	myfile.close();
+	writeCLLStats();
 }
 
 PVideoFrame MaxCLLFind::GetFrame(int n, IScriptEnvironment *env) {
@@ -393,7 +411,9 @@ PVideoFrame MaxCLLFind::GetFrame(int n, IScriptEnvironment *env) {
 			processor_(dstp, dst_pitch, src_ptrs, src_pitches, frames_count, width, height, n);
 		}
     }
-	framesCounted++;
+	if (framesCounted++ % 100 == 0) {
+		writeCLLStats();
+	}
 
     for (int i = 0; i < frames_count; ++i) {
         src_frames[i].~PVideoFrame();
