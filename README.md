@@ -4,6 +4,9 @@ PQ HDR Analyzer plugin for AVISynth, analyzes MaxCLL and MaxFALL and writes that
 
 The created textfile's name is "MaxCLLFind_Results0.txt". It will be overwritten if it already exists.
 
+**Caution:** This may not be the correct way to calculate MaxFALL and MaxCLL. For (Max)FALL I averaged the nit intensities of every single channel of every pixel in the frame. For MaxCLL I simply took the brightest channel of any pixel in any of the frames. There may be some weighting necessary akin to what was done here: https://github.com/HDRWCG/HDRStaticMetadata
+
+
 ### Usage
 ```
 clip.MaxCLLFind()
