@@ -86,11 +86,14 @@ inline float spow(float base, float exp) {
 	return sgn(base) * pow(abs(base),exp);
 }
 
-inline float eotf_ST2084(float N, float L_p = 10000) {
+float* nitArray;
+
+float m_1_d = 1 / ST2084_CONST_M_1;
+float m_2_d = 1 / ST2084_CONST_M_2;
+
+inline float eotf_ST2084(float N) {
 	//N = to_domain_1(N)
 
-	float m_1_d = 1 / ST2084_CONST_M_1;
-	float m_2_d = 1 / ST2084_CONST_M_2;
 
 	float V_p = spow(N, m_2_d);
 
@@ -99,7 +102,7 @@ inline float eotf_ST2084(float N, float L_p = 10000) {
 	n = n < 0 ? 0 : n;
     
 	float L = spow((n / (ST2084_CONST_C_2 - ST2084_CONST_C_3 * V_p)), m_1_d);
-	float C = L_p * L;
+	float C = ST2084_L_P * L;
 
 	return C;//from_range_1(C)
 }
@@ -146,14 +149,16 @@ static inline void dofindmaxcll_c(uint8_t *dstp, int dst_pitch, const uint8_t **
       float acc = 0;
       for (int i = 0; i < frames_count; ++i) {
 		  pixel_t currentvalue = reinterpret_cast<const pixel_t *>(src_pointers[i])[x];
-		  currentvalueFloat = (float)currentvalue / (float)max_pixel_value;
-		  nits = eotf_ST2084(currentvalueFloat);
+		  //nits = eotf_ST2084(currentvalueFloat);
+		  nits = nitArray[(int)currentvalue];
 
 		  // x % 4 == 1 is Alpha, so always full value and will destroy the measurement
 		  if (x % 4 != 3) {
 			  CLLSum += nits;
 			  CLLvalueCount++;
 			  if ( currentvalue > highestrawvalue) {
+
+				  currentvalueFloat = (float)currentvalue / (float)max_pixel_value;
 				  highestnits = nits; 
 				  highestrawvalue = currentvalue;
 				  highestFloatvalue = currentvalueFloat;
@@ -162,6 +167,8 @@ static inline void dofindmaxcll_c(uint8_t *dstp, int dst_pitch, const uint8_t **
 				  highestFrame = thisFrame;
 			  }
 			  if ( currentvalue < lowestrawvalue) {
+
+				  currentvalueFloat = (float)currentvalue / (float)max_pixel_value;
 				  lowestnits = nits; 
 				  lowestrawvalue = currentvalue;
 				  lowestFloatvalue = currentvalueFloat;
@@ -200,292 +207,6 @@ static inline void dofindmaxcll_c(uint8_t *dstp, int dst_pitch, const uint8_t **
 }
 
 
-
-
-/*
-// fake _mm_packus_epi32 (orig is SSE4.1 only)
-__forceinline __m128i _MM_PACKUS_EPI32(__m128i a, __m128i b)
-{
-  a = _mm_slli_epi32(a, 16);
-  a = _mm_srai_epi32(a, 16);
-  b = _mm_slli_epi32(b, 16);
-  b = _mm_srai_epi32(b, 16);
-  a = _mm_packs_epi32(a, b);
-  return a;
-}
-
-
-// hasSSE4: only counts where uint16_t and bits_per_pixel == 16
-template<typename pixel_t, int bits_per_pixel, bool hasSSE4>
-static inline void weighted_average_sse2(uint8_t *dstp, int dst_pitch, const uint8_t **src_pointers, int *src_pitches, float *weights, int frames_count, int width, int height) {
-    // width is row_size
-    int mod_width;
-    if(sizeof(pixel_t) == 1)
-      mod_width = width / 8 * 8;
-    else
-      mod_width = width / 16 * 16;
-
-    const int sse_size = (sizeof(pixel_t) == 1) ? 8 : 16;
-
-    const int max_pixel_value = (sizeof(pixel_t) == 1) ? 255 : ((1 << bits_per_pixel) - 1);
-    __m128i pixel_limit;
-    if (sizeof(pixel_t) == 2 && bits_per_pixel < 16)
-      pixel_limit = _mm_set1_epi16((int16_t)max_pixel_value);
-
-    __m128i zero = _mm_setzero_si128();
-
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < mod_width; x += sse_size) {
-            __m128 acc_lo = _mm_setzero_ps();
-            __m128 acc_hi = _mm_setzero_ps();
-            
-            for (int i = 0; i < frames_count; ++i) {
-                __m128i src;
-                if (sizeof(pixel_t) == 1)
-                  src = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src_pointers[i] + x));
-                else
-                  src = _mm_load_si128(reinterpret_cast<const __m128i*>(src_pointers[i] + x));
-                auto weight = _mm_set1_ps(weights[i]);
-
-                if(sizeof(pixel_t) == 1)
-                  src = _mm_unpacklo_epi8(src, zero);
-                auto src_lo_ps = _mm_cvtepi32_ps(_mm_unpacklo_epi16(src, zero));
-                auto src_hi_ps = _mm_cvtepi32_ps(_mm_unpackhi_epi16(src, zero));
-
-                auto weighted_lo = _mm_mul_ps(src_lo_ps, weight);
-                auto weighted_hi = _mm_mul_ps(src_hi_ps, weight);
-                
-                acc_lo = _mm_add_ps(acc_lo, weighted_lo);
-                acc_hi = _mm_add_ps(acc_hi, weighted_hi);
-            }
-            auto dst_lo = _mm_cvtps_epi32(acc_lo);
-            auto dst_hi = _mm_cvtps_epi32(acc_hi);
-
-            __m128i dst;
-            if (sizeof(pixel_t) == 1) {
-              dst = _mm_packs_epi32(dst_lo, dst_hi);
-              dst = _mm_packus_epi16(dst, zero);
-            }
-            else if (sizeof(pixel_t) == 2) {
-              if (bits_per_pixel < 16) {
-                dst = _mm_packs_epi32(dst_lo, dst_hi); // no need for packus
-              }
-              else {
-                if(hasSSE4)
-                  dst = _mm_packus_epi32(dst_lo, dst_hi);
-                else
-                  dst = _MM_PACKUS_EPI32(dst_lo, dst_hi); // SSE2 friendly but slower
-              }
-            }
-            
-            if (sizeof(pixel_t) == 2 && bits_per_pixel < 16)
-              dst = _mm_min_epi16(dst, pixel_limit); // no need for SSE4 epu16 
-
-            if(sizeof(pixel_t) == 1)
-              _mm_storel_epi64(reinterpret_cast<__m128i*>(dstp+x), dst);
-            else
-              _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x), dst);
-        }
-
-        int start = mod_width / sizeof(pixel_t);
-        int end = width / sizeof(pixel_t);
-        for (int x = start; x < end; ++x) {
-            float acc = 0;
-            for (int i = 0; i < frames_count; ++i) {
-                acc += reinterpret_cast<const pixel_t *>(src_pointers[i])[x] * weights[i];
-            }
-            reinterpret_cast<pixel_t *>(dstp)[x] = static_clip<0, max_pixel_value>(acc);
-        }
-
-        for (int i = 0; i < frames_count; ++i) {
-            src_pointers[i] += src_pitches[i];
-        }
-        dstp += dst_pitch;
-    }
-}
-
-static inline void weighted_average_f_sse2(uint8_t *dstp, int dst_pitch, const uint8_t **src_pointers, int *src_pitches, float *weights, int frames_count, int width, int height) {
-  // width is row_size
-  int mod_width = width / 16 * 16;
-
-  const int sse_size = 16;
-
-  __m128i zero = _mm_setzero_si128();
-
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < mod_width; x += sse_size) {
-      __m128 acc = _mm_setzero_ps();
-
-      for (int i = 0; i < frames_count; ++i) {
-        __m128 src;
-        src = _mm_load_ps(reinterpret_cast<const float*>(src_pointers[i] + x));
-        auto weight = _mm_set1_ps(weights[i]);
-
-        auto weighted = _mm_mul_ps(src, weight);
-
-        acc = _mm_add_ps(acc, weighted);
-      }
-
-      _mm_store_ps(reinterpret_cast<float*>(dstp + x), acc);
-    }
-
-    for (int x = mod_width / 4; x < width / 4; ++x) {
-      float acc = 0;
-      for (int i = 0; i < frames_count; ++i) {
-        acc += reinterpret_cast<const float *>(src_pointers[i])[x] * weights[i];
-      }
-      reinterpret_cast<float *>(dstp)[x] = acc; // float: no clamping
-    }
-
-    for (int i = 0; i < frames_count; ++i) {
-      src_pointers[i] += src_pitches[i];
-    }
-    dstp += dst_pitch;
-  }
-}
-
-
-template<int frames_count_2_3_more>
-static inline void weighted_average_int_sse2(uint8_t *dstp, int dst_pitch, const uint8_t **src_pointers, int *src_pitches, float *weights, int frames_count, int width, int height) {
-    int16_t *int_weights = reinterpret_cast<int16_t*>(alloca(frames_count*sizeof(int16_t)));
-    for (int i = 0; i < frames_count; ++i) {
-        int_weights[i] = static_cast<int16_t>((1 << 14) * weights[i]);
-    }
-    int mod8_width = width / 8 * 8;
-    __m128i zero = _mm_setzero_si128();
-
-    __m128i round_mask = _mm_set1_epi32(0x2000);
-
-    bool even_frames = (frames_count % 2 != 0);
-
-    if (frames_count_2_3_more == 2 || frames_count_2_3_more == 3) {
-      for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < mod8_width; x += 8) {
-          __m128i acc_lo = _mm_setzero_si128();
-          __m128i acc_hi = _mm_setzero_si128();
-
-          __m128i src = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src_pointers[0] + x));
-          __m128i src2 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src_pointers[1] + x));
-          __m128i weight = _mm_set1_epi32(*reinterpret_cast<int*>(int_weights));
-
-          src = _mm_unpacklo_epi8(src, zero);
-          src2 = _mm_unpacklo_epi8(src2, zero);
-          __m128i src_lo = _mm_unpacklo_epi16(src, src2);
-          __m128i src_hi = _mm_unpackhi_epi16(src, src2);
-
-          __m128i weighted_lo = _mm_madd_epi16(src_lo, weight);
-          __m128i weighted_hi = _mm_madd_epi16(src_hi, weight);
-
-          acc_lo = _mm_add_epi32(acc_lo, weighted_lo);
-          acc_hi = _mm_add_epi32(acc_hi, weighted_hi);
-
-          if (frames_count_2_3_more == 3) {
-            __m128i src = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src_pointers[2] + x));
-            __m128i weight = _mm_set1_epi32(int_weights[2]);
-
-            src = _mm_unpacklo_epi8(src, zero);
-            __m128i src_lo = _mm_unpacklo_epi16(src, zero);
-            __m128i src_hi = _mm_unpackhi_epi16(src, zero);
-
-            __m128i weighted_lo = _mm_madd_epi16(src_lo, weight);
-            __m128i weighted_hi = _mm_madd_epi16(src_hi, weight);
-
-            acc_lo = _mm_add_epi32(acc_lo, weighted_lo);
-            acc_hi = _mm_add_epi32(acc_hi, weighted_hi);
-          }
-
-          acc_lo = _mm_add_epi32(acc_lo, round_mask);
-          acc_hi = _mm_add_epi32(acc_hi, round_mask);
-
-          __m128i dst_lo = _mm_srai_epi32(acc_lo, 14);
-          __m128i dst_hi = _mm_srai_epi32(acc_hi, 14);
-
-          __m128i dst = _mm_packs_epi32(dst_lo, dst_hi);
-          dst = _mm_packus_epi16(dst, zero);
-          _mm_storel_epi64(reinterpret_cast<__m128i*>(dstp + x), dst);
-        }
-
-        for (int x = mod8_width; x < width; ++x) {
-          float acc = 0;
-          acc += src_pointers[0][x] * weights[0];
-          acc += src_pointers[1][x] * weights[1];
-          if (frames_count_2_3_more == 3)
-            acc += src_pointers[2][x] * weights[2];
-          dstp[x] = static_clip<0, 255>(acc);
-        }
-       
-        src_pointers[0] += src_pitches[0];
-        src_pointers[1] += src_pitches[1];
-        if (frames_count_2_3_more == 3)
-          src_pointers[2] += src_pitches[2];
-        dstp += dst_pitch;
-      }
-    } else {
-      // generic path
-      for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < mod8_width; x += 8) {
-          __m128i acc_lo = _mm_setzero_si128();
-          __m128i acc_hi = _mm_setzero_si128();
-
-          for (int i = 0; i < frames_count - 1; i += 2) {
-            __m128i src = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src_pointers[i] + x));
-            __m128i src2 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src_pointers[i + 1] + x));
-            __m128i weight = _mm_set1_epi32(*reinterpret_cast<int*>(int_weights + i));
-
-            src = _mm_unpacklo_epi8(src, zero);
-            src2 = _mm_unpacklo_epi8(src2, zero);
-            __m128i src_lo = _mm_unpacklo_epi16(src, src2);
-            __m128i src_hi = _mm_unpackhi_epi16(src, src2);
-
-            __m128i weighted_lo = _mm_madd_epi16(src_lo, weight);
-            __m128i weighted_hi = _mm_madd_epi16(src_hi, weight);
-
-            acc_lo = _mm_add_epi32(acc_lo, weighted_lo);
-            acc_hi = _mm_add_epi32(acc_hi, weighted_hi);
-          }
-
-          if (even_frames) {
-            __m128i src = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src_pointers[frames_count - 1] + x));
-            __m128i weight = _mm_set1_epi32(int_weights[frames_count - 1]);
-
-            src = _mm_unpacklo_epi8(src, zero);
-            __m128i src_lo = _mm_unpacklo_epi16(src, zero);
-            __m128i src_hi = _mm_unpackhi_epi16(src, zero);
-
-            __m128i weighted_lo = _mm_madd_epi16(src_lo, weight);
-            __m128i weighted_hi = _mm_madd_epi16(src_hi, weight);
-
-            acc_lo = _mm_add_epi32(acc_lo, weighted_lo);
-            acc_hi = _mm_add_epi32(acc_hi, weighted_hi);
-          }
-
-          acc_lo = _mm_add_epi32(acc_lo, round_mask);
-          acc_hi = _mm_add_epi32(acc_hi, round_mask);
-
-          __m128i dst_lo = _mm_srai_epi32(acc_lo, 14);
-          __m128i dst_hi = _mm_srai_epi32(acc_hi, 14);
-
-          __m128i dst = _mm_packs_epi32(dst_lo, dst_hi);
-          dst = _mm_packus_epi16(dst, zero);
-          _mm_storel_epi64(reinterpret_cast<__m128i*>(dstp + x), dst);
-        }
-
-        for (int x = mod8_width; x < width; ++x) {
-          float acc = 0;
-          for (int i = 0; i < frames_count; ++i) {
-            acc += src_pointers[i][x] * weights[i];
-          }
-          dstp[x] = static_clip<0, 255>(acc);
-        }
-
-        for (int i = 0; i < frames_count; ++i) {
-          src_pointers[i] += src_pitches[i];
-        }
-        dstp += dst_pitch;
-      }
-    }
-}
-*/
 
 struct JustAClip {
     PClip clip;
@@ -610,6 +331,8 @@ private:
 
 MaxCLLFind::~MaxCLLFind() {
 
+	delete[] nitArray;
+
 	float FALLAverage = FALLSum / (long double) framesCounted;
 
 	std::ofstream myfile;
@@ -700,6 +423,13 @@ AVSValue __cdecl create_maxcllfind(AVSValue args, void* user_data, IScriptEnviro
 
 	if (!vi.IsRGB64()) {
 		env->ThrowError("MaxCLLFind: clip MUST be RGB64, sorry. Use ConvertToRGB64 for example.");
+	}
+
+	int possibleValues = pow(2, 16);
+	nitArray = new float[possibleValues]; // 16 bit value array for nit values corresponding to 16 bit RGB values
+
+	for (int i = 0; i < possibleValues; i++) {
+		nitArray[i] = eotf_ST2084((float)i / (float)possibleValues);
 	}
 
     /*for (int i = 1; i < arguments_count; i += 1) {
