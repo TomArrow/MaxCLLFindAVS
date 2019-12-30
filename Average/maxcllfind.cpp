@@ -143,6 +143,8 @@ static inline void dofindmaxcll_c(uint8_t *dstp, int dst_pitch, const uint8_t **
   pixel_t currentvalue;
   float currentvalueFloat;
   long double CLLSum = 0;
+  float channelNits[3];
+  float maxChannelNits;
   int CLLvalueCount = 0;
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
@@ -154,8 +156,15 @@ static inline void dofindmaxcll_c(uint8_t *dstp, int dst_pitch, const uint8_t **
 
 		  // x % 4 == 1 is Alpha, so always full value and will destroy the measurement
 		  if (x % 4 != 3) {
-			  CLLSum += nits;
-			  CLLvalueCount++;
+			  if (maxFallAlgorithm == MAXFALL_ALLCHANNELS) {
+
+				  CLLSum += nits;
+				  CLLvalueCount++;
+			  }
+			  else {
+
+				  channelNits[x % 4] = nits;
+			  }
 			  if ( currentvalue > highestrawvalue) {
 
 				  currentvalueFloat = (float)currentvalue / (float)max_pixel_value;
@@ -176,12 +185,20 @@ static inline void dofindmaxcll_c(uint8_t *dstp, int dst_pitch, const uint8_t **
 				  lowestValueY = y;
 				  lowestFrame = thisFrame;
 			  }
+		  } 
+		  // If x%4 == 3, that means we're in the alpha channel, which means we passed through R, G and B and populated channelNits, 
+		  // so we can now calculate their max and use it for CLLSum which in turn gets used for MaxFALL. 
+		  // This is how it's officially to be done according to SMPTE, even if it's questionable in my eyes logically, but hey.
+		  else if (maxFallAlgorithm == MAXFALL_OFFICIAL) {
+
+			  maxChannelNits = std::max(channelNits[0],channelNits[1]);
+			  maxChannelNits = std::max(maxChannelNits,channelNits[1]);
+
+			  CLLSum += maxChannelNits;
+			  CLLvalueCount++;
 		  }
 		  acc += currentvalue;// reinterpret_cast<const pixel_t *>(src_pointers[i])[x];
 		  
-		  if (x==3) {
-			  acc = max_pixel_value;
-		  }
 	  }
       if (sizeof(pixel_t) == 4)
         reinterpret_cast<float *>(dstp)[x] = acc;
@@ -422,6 +439,10 @@ PVideoFrame MaxCLLFind::GetFrame(int n, IScriptEnvironment *env) {
     return dst;
 }
 
+const int MAXFALL_OFFICIAL = 0;
+const int MAXFALL_ALLCHANNELS = 1;
+
+int maxFallAlgorithm = 0;
 
 AVSValue __cdecl create_maxcllfind(AVSValue args, void* user_data, IScriptEnvironment* env) {
     //int arguments_count = args[0].ArraySize();
@@ -435,6 +456,11 @@ AVSValue __cdecl create_maxcllfind(AVSValue args, void* user_data, IScriptEnviro
     auto first_clip = args[0].AsClip();
     auto first_vi = first_clip->GetVideoInfo();
     clips.emplace_back(first_clip);
+
+	// Algorithms for MaxFALL frame averaging (default 0)
+	// 0 = SMPTE2084 recommendation (average of highest channels of all pixels)
+	// 1 = Average of all channels of all pixels
+	maxFallAlgorithm = args[1].AsInt(MAXFALL_OFFICIAL);
 
 
 	auto clip = args[0].AsClip();
@@ -481,6 +507,6 @@ extern "C" __declspec(dllexport) const char* __stdcall AvisynthPluginInit3(IScri
 	// 1 - reference clip
 	// 2 - testclip (for example a downsized version of the clip to be regraded. this one will be actually used for the regrading and comparing to reference.
 	// 3+ - additional reference clips (not supported atm, will be ignored)
-    env->AddFunction("maxcllfind", "c", create_maxcllfind, 0);
+    env->AddFunction("maxcllfind", "c[maxFallAlgorithm]i", create_maxcllfind, 0);
     return "Mind your sugar level";
 }
