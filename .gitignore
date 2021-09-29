@@ -1,6 +1,7 @@
 .vs/
 Build
 test
+bin
 *.*sdf
 *.suo
 *.user
