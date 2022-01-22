@@ -171,8 +171,8 @@ static inline void dofindmaxcll_c(uint8_t *dstp, int dst_pitch, const uint8_t **
 				  highestnits = nits; 
 				  highestrawvalue = currentvalue;
 				  highestFloatvalue = currentvalueFloat;
-				  highestValueX = x;
-				  highestValueY = y;
+				  highestValueX = x / 4;
+				  highestValueY = height - y - 1;
 				  highestFrame = thisFrame;
 			  }
 			  if ( currentvalue < lowestrawvalue) {
@@ -181,8 +181,8 @@ static inline void dofindmaxcll_c(uint8_t *dstp, int dst_pitch, const uint8_t **
 				  lowestnits = nits; 
 				  lowestrawvalue = currentvalue;
 				  lowestFloatvalue = currentvalueFloat;
-				  lowestValueX = x;
-				  lowestValueY = y;
+				  lowestValueX = x / 4;
+				  lowestValueY = height - y - 1;
 				  lowestFrame = thisFrame;
 			  }
 		  } 
