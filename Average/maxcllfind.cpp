@@ -152,42 +152,38 @@ static inline void dofindmaxcll_c(const BYTE* ptr, int pitch, int width, int hei
             //nits = eotf_ST2084(currentvalueFloat);
             nits = nitArray[(int)currentvalue];
 
-            // x % 4 == 1 is Alpha, so always full value and will destroy the measurement
-            if (x % 4 != 3) {
-                if (maxFallAlgorithm == MAXFALL_ALLCHANNELS) {
+            if (maxFallAlgorithm == MAXFALL_ALLCHANNELS) {
 
-                    CLLSum += nits;
-                    CLLvalueCount++;
-                }
-                else {
-
-                    channelNits[x % 4] = nits;
-                }
-                if (currentvalue > highestrawvalue) {
-
-                    currentvalueFloat = (float)currentvalue / (float)max_pixel_value;
-                    highestnits = nits;
-                    highestrawvalue = currentvalue;
-                    highestFloatvalue = currentvalueFloat;
-                    highestValueX = x / 4;
-                    highestValueY = height - y - 1;
-                    highestFrame = thisFrame;
-                }
-                if (currentvalue < lowestrawvalue) {
-
-                    currentvalueFloat = (float)currentvalue / (float)max_pixel_value;
-                    lowestnits = nits;
-                    lowestrawvalue = currentvalue;
-                    lowestFloatvalue = currentvalueFloat;
-                    lowestValueX = x / 4;
-                    lowestValueY = height - y - 1;
-                    lowestFrame = thisFrame;
-                }
+                CLLSum += nits;
+                CLLvalueCount++;
             }
-            // If x%4 == 3, that means we're in the alpha channel, which means we passed through R, G and B and populated channelNits, 
-            // so we can now calculate their max and use it for CLLSum which in turn gets used for MaxFALL. 
-            // This is how it's officially to be done according to SMPTE, even if it's questionable in my eyes logically, but hey.
-            else if (maxFallAlgorithm == MAXFALL_OFFICIAL) {
+            else {
+
+                channelNits[x % 3] = nits;
+            }
+            if (currentvalue > highestrawvalue) {
+
+                currentvalueFloat = (float)currentvalue / (float)max_pixel_value;
+                highestnits = nits;
+                highestrawvalue = currentvalue;
+                highestFloatvalue = currentvalueFloat;
+                highestValueX = x / 3;
+                highestValueY = height - y - 1;
+                highestFrame = thisFrame;
+            }
+            if (currentvalue < lowestrawvalue) {
+
+                currentvalueFloat = (float)currentvalue / (float)max_pixel_value;
+                lowestnits = nits;
+                lowestrawvalue = currentvalue;
+                lowestFloatvalue = currentvalueFloat;
+                lowestValueX = x / 3;
+                lowestValueY = height - y - 1;
+                lowestFrame = thisFrame;
+            }
+            if ((x % 3 == 2) && (maxFallAlgorithm == MAXFALL_OFFICIAL)) {
+                // we passed through R, G and B and populated channelNits, so we can now calculate their max and use it for CLLSum which in turn gets used for MaxFALL. 
+                // This is how it's officially to be done according to SMPTE, even if it's questionable in my eyes logically, but hey.
 
                 maxChannelNits = std::max(channelNits[0], channelNits[1]);
                 maxChannelNits = std::max(maxChannelNits, channelNits[1]);
@@ -404,8 +400,8 @@ AVSValue __cdecl create_maxcllfind(AVSValue args, void* user_data, IScriptEnviro
 	auto clip = args[0].AsClip();
 	auto vi = clip->GetVideoInfo();
 
-	if (!vi.IsRGB64()) {
-		env->ThrowError("MaxCLLFind: clip MUST be RGB64, sorry. Use ConvertToRGB64 for example.");
+	if (!vi.IsRGB48()) {
+		env->ThrowError("MaxCLLFind: clip MUST be RGB48, sorry. Use ConvertToRGB48 for example.");
 	}
 
 	int possibleValues = pow(2, 16);
