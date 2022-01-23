@@ -186,7 +186,7 @@ static inline void dofindmaxcll_c(const BYTE* ptr, int pitch, int width, int hei
                 // This is how it's officially to be done according to SMPTE, even if it's questionable in my eyes logically, but hey.
 
                 maxChannelNits = std::max(channelNits[0], channelNits[1]);
-                maxChannelNits = std::max(maxChannelNits, channelNits[1]);
+                maxChannelNits = std::max(maxChannelNits, channelNits[2]);
 
                 CLLSum += maxChannelNits;
                 CLLvalueCount++;
