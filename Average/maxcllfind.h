@@ -16,10 +16,9 @@ public:
 private:
     void writeCLLStats();
     template<typename pixel_t, int bits_per_pixel>
-    void dofindmaxcll_c(const BYTE* ptr, int pitch, int width, int height, int thisFrame);
+    void dofindmaxcll_c(const PVideoFrame src, int thisFrame);
 
     decltype(&dofindmaxcll_c<uint8_t, 8>) processor_;
-    decltype(&dofindmaxcll_c<uint8_t, 8>) processor_32aligned_;
     
     // MaxcLL
     unsigned int highestrawvalue = 0;

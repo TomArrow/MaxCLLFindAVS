@@ -104,10 +104,14 @@ inline float eotf_ST2084(float N) {
 }
 
 template<typename pixel_t, int bits_per_pixel>
-void MaxCLLFind::dofindmaxcll_c(const BYTE* ptr, int pitch, int width, int height, int thisFrame) {
+void MaxCLLFind::dofindmaxcll_c(const PVideoFrame src, int thisFrame) {
     // width is rowsize
     const int max_pixel_value = (sizeof(pixel_t) == 1) ? 255 : ((1 << bits_per_pixel) - 1);
 
+    const BYTE* ptr = src->GetReadPtr();
+    int pitch = src->GetPitch();
+    int height = src->GetHeight();
+    int width = src->GetRowSize();
     width /= sizeof(pixel_t);
 
     float nits;
@@ -204,7 +208,7 @@ MaxCLLFind::MaxCLLFind(PClip clip, IScriptEnvironment* env, int maxFallAlgorithm
     int pixelsize = vi.ComponentSize();
     int bits_per_pixel = vi.BitsPerComponent();
 
-    bool avx = !!(env->GetCPUFlags() & CPUF_AVX);
+    //bool avx = !!(env->GetCPUFlags() & CPUF_AVX);
     // we don't know the alignment here. avisynth+: 32 bytes, classic: 16
     // decide later (processor_, processor_32aligned)
 
@@ -287,8 +291,8 @@ MaxCLLFind::MaxCLLFind(PClip clip, IScriptEnvironment* env, int maxFallAlgorithm
         processor_ = &MaxCLLFind::dofindmaxcll_c<float, 1>; // bits_per_pixel n/a
         break;
       }
-      processor_32aligned_ = processor_;
-    //}
+      /*processor_32aligned_ = processor_;
+    }*/
 }
 
 
@@ -326,7 +330,7 @@ MaxCLLFind::~MaxCLLFind() {
 PVideoFrame MaxCLLFind::GetFrame(int n, IScriptEnvironment *env) {
     PVideoFrame src = child->GetFrame(n, env);
 
-    int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
+    /*int planes_y[4] = {PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A};
     int planes_r[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
     int *planes = (vi.IsPlanarRGB() || vi.IsPlanarRGBA()) ? planes_r : planes_y;
     
@@ -348,10 +352,10 @@ PVideoFrame MaxCLLFind::GetFrame(int n, IScriptEnvironment *env) {
         if (allSrc32aligned) {
             (*this.*processor_32aligned_)(ptr, pitch, width, height, n);
         }
-        else {
-            (*this.*processor_)(ptr, pitch, width, height, n);
-        }
-    }
+        else {*/
+            (*this.*processor_)(src, n);
+        /* }
+    }*/
 	if (framesCounted++ % 100 == 0) {
 		writeCLLStats();
 	}
