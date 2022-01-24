@@ -1,16 +1,14 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
-#include "avisynth.h"
+#include "maxcllfind.h"
 #include "avs\alignment.h"
-#include <stdint.h>
 #include <iostream>
 #include <fstream>
 #include <math.h>
 #include <algorithm>
 #include <emmintrin.h>
 #include <vector>
-#include <string>
 
 
 template<int minimum, int maximum>
@@ -23,8 +21,6 @@ static __forceinline int static_clip(float val) {
     }
     return (int)val;
 }
-
-
 
 struct FloatColor
 {
@@ -107,36 +103,15 @@ inline float eotf_ST2084(float N) {
 	return C;//from_range_1(C)
 }
 
-int fileWriteCounter = 0;
-
-// MaxcLL
-int highestrawvalue = 0;
-int highestFrame = 0;
-float highestFloatvalue = 0;
-float highestnits = 0;
-int highestValueX, highestValueY;
-
-// MinCLL
-int lowestrawvalue = INT_MAX;
-int lowestFrame = INT_MAX;
-float lowestFloatvalue;
-float lowestnits;
-int lowestValueX, lowestValueY;
-
-// FALL Average
-long double FALLSum = 0;
-long framesCounted = 0;
-
-// MaxFALL
-float MaxFALL = 0;
-int MaxFALLFrame;
-
-
 template<typename pixel_t, int bits_per_pixel>
-static inline void dofindmaxcll_c(const BYTE* ptr, int pitch, int width, int height, int thisFrame) {
+void MaxCLLFind::dofindmaxcll_c(const PVideoFrame src, int thisFrame) {
     // width is rowsize
     const int max_pixel_value = (sizeof(pixel_t) == 1) ? 255 : ((1 << bits_per_pixel) - 1);
 
+    const BYTE* ptr = src->GetReadPtr();
+    int pitch = src->GetPitch();
+    int height = src->GetHeight();
+    int width = src->GetRowSize();
     width /= sizeof(pixel_t);
 
     float nits;
@@ -152,15 +127,6 @@ static inline void dofindmaxcll_c(const BYTE* ptr, int pitch, int width, int hei
             //nits = eotf_ST2084(currentvalueFloat);
             nits = nitArray[(int)currentvalue];
 
-            if (maxFallAlgorithm == MAXFALL_ALLCHANNELS) {
-
-                CLLSum += nits;
-                CLLvalueCount++;
-            }
-            else {
-
-                channelNits[x % 3] = nits;
-            }
             if (currentvalue > highestrawvalue) {
 
                 currentvalueFloat = (float)currentvalue / (float)max_pixel_value;
@@ -181,22 +147,31 @@ static inline void dofindmaxcll_c(const BYTE* ptr, int pitch, int width, int hei
                 lowestValueY = height - y - 1;
                 lowestFrame = thisFrame;
             }
-            if ((x % 3 == 2) && (maxFallAlgorithm == MAXFALL_OFFICIAL)) {
-                // we passed through R, G and B and populated channelNits, so we can now calculate their max and use it for CLLSum which in turn gets used for MaxFALL. 
-                // This is how it's officially to be done according to SMPTE, even if it's questionable in my eyes logically, but hey.
 
-                maxChannelNits = std::max(channelNits[0], channelNits[1]);
-                maxChannelNits = std::max(maxChannelNits, channelNits[2]);
-
-                CLLSum += maxChannelNits;
+            switch (maxFallAlgorithm) {
+            case MAXFALL_NONE:
+                break;
+            case MAXFALL_ALLCHANNELS:
+                CLLSum += nits;
                 CLLvalueCount++;
+                break;
+            case MAXFALL_OFFICIAL:
+                int channel = x % 3;
+                channelNits[channel] = nits;
+                if (channel == 2) {
+                    // we passed through R, G and B and populated channelNits, so we can now calculate their max and use it for CLLSum which in turn gets used for MaxFALL. 
+                    maxChannelNits = std::max(channelNits[0], channelNits[1]);
+                    maxChannelNits = std::max(maxChannelNits, channelNits[2]);
+                    CLLSum += maxChannelNits;
+                    CLLvalueCount++;
+                }
             }
         }
         ptr += pitch;
     }
 
     if (CLLvalueCount > 0) {
-        float FALL = CLLSum / (long double)CLLvalueCount;
+        float FALL = CLLSum / (float)CLLvalueCount;
         FALLSum += FALL;
         if (FALL > MaxFALL) {
             MaxFALL = FALL;
@@ -206,15 +181,32 @@ static inline void dofindmaxcll_c(const BYTE* ptr, int pitch, int width, int hei
 }
 
 
-class MaxCLLFind : public GenericVideoFilter {
-public:
-  MaxCLLFind(PClip clip, IScriptEnvironment* env)
-    : GenericVideoFilter(clip) {
+MaxCLLFind::MaxCLLFind(PClip clip, IScriptEnvironment* env, MaxFallAlgorithm maxFallAlgorithm)
+    : GenericVideoFilter(clip)
+    , highestrawvalue(0)
+    , highestFrame(0)
+    , highestFloatvalue(0)
+    , highestnits(0)
+    , highestValueX(0)
+    , highestValueY(0)
+    , lowestrawvalue(-1)
+    , lowestFrame(-1)
+    , lowestFloatvalue(0)
+    , lowestnits(0)
+    , lowestValueX(0)
+    , lowestValueY(0)
+    , FALLSum(0)
+    , framesCounted(0)
+    , maxFallAlgorithm(maxFallAlgorithm)
+    , MaxFALL(0)
+    , MaxFALLFrame(0)
+    , fileWriteCounter(0)
+    , statsFileName("") {
 
     int pixelsize = vi.ComponentSize();
     int bits_per_pixel = vi.BitsPerComponent();
 
-    bool avx = !!(env->GetCPUFlags() & CPUF_AVX);
+    //bool avx = !!(env->GetCPUFlags() & CPUF_AVX);
     // we don't know the alignment here. avisynth+: 32 bytes, classic: 16
     // decide later (processor_, processor_32aligned)
 
@@ -279,44 +271,30 @@ public:
     else {*/
       switch (bits_per_pixel) {
       case 8:
-        processor_ = &dofindmaxcll_c<uint8_t, 8>;
+        processor_ = &MaxCLLFind::dofindmaxcll_c<uint8_t, 8>;
         break;
       case 10:
-        processor_ = &dofindmaxcll_c<uint16_t, 10>;
+        processor_ = &MaxCLLFind::dofindmaxcll_c<uint16_t, 10>;
         break;
       case 12:
-        processor_ = &dofindmaxcll_c<uint16_t, 12>;
+        processor_ = &MaxCLLFind::dofindmaxcll_c<uint16_t, 12>;
         break;
       case 14:
-        processor_ = &dofindmaxcll_c<uint16_t, 14>;
+        processor_ = &MaxCLLFind::dofindmaxcll_c<uint16_t, 14>;
         break;
       case 16:
-        processor_ = &dofindmaxcll_c<uint16_t, 16>;
+        processor_ = &MaxCLLFind::dofindmaxcll_c<uint16_t, 16>;
         break;
       case 32:
-        processor_ = &dofindmaxcll_c<float, 1>; // bits_per_pixel n/a
+        processor_ = &MaxCLLFind::dofindmaxcll_c<float, 1>; // bits_per_pixel n/a
         break;
       }
-      processor_32aligned_ = processor_;
-    //}
-  }
+      /*processor_32aligned_ = processor_;
+    }*/
+}
 
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env);
 
-  ~MaxCLLFind();
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-private:
-  decltype(&dofindmaxcll_c<uint8_t, 8>) processor_;
-  decltype(&dofindmaxcll_c<uint8_t, 8>) processor_32aligned_;
-};
-
-std::string statsFileName = "";
-
-void writeCLLStats() {
+void MaxCLLFind::writeCLLStats() {
 
 	if (statsFileName == "") {
 		FILE* test;
@@ -328,31 +306,32 @@ void writeCLLStats() {
 		//statsFileName = "MaxCLLFind_Results" + std::to_string(counter) + ".txt";
 	}
 
-	float FALLAverage = FALLSum / (long double)framesCounted;
+	float FALLAverage = FALLSum / (float)framesCounted;
 
 	std::ofstream myfile;
 	myfile.open(statsFileName, std::ios::out | std::ios::app);
 	myfile << "Stats at frame " << framesCounted << ":\n";
 	myfile << "MaxCLL: " << highestnits << ", raw value: " << highestrawvalue << " " << highestFloatvalue << " at X " << highestValueX << " Y " << highestValueY << " at frame " << highestFrame << /*" byte depth: " << sizeof(pixel_t) <<*/ "\n";
 	myfile << "MinCLL: " << lowestnits << ", raw value: " << lowestrawvalue << " " << lowestFloatvalue << " at X " << lowestValueX << " Y " << lowestValueY << " at frame " << lowestFrame << /*" byte depth: " << sizeof(pixel_t) <<*/ "\n";
-	myfile << "MaxFALL: " << MaxFALL << " at frame " << MaxFALLFrame << "\n";
-	myfile << "FALL Average: " << FALLAverage << " across " << framesCounted << " frames.\n\n";
-	//myfile << "Dims: " << width << "x" << height;
+    if (maxFallAlgorithm != MAXFALL_NONE) {
+        myfile << "MaxFALL: " << MaxFALL << " at frame " << MaxFALLFrame << "\n";
+        myfile << "FALL Average: " << FALLAverage << " across " << framesCounted << " frames.\n";
+    }
+    //myfile << "Dims: " << width << "x" << height;
+    myfile << "\n";
 	myfile.close();
 }
-
 
 MaxCLLFind::~MaxCLLFind() {
 
 	delete[] nitArray;
-
 	writeCLLStats();
 }
 
 PVideoFrame MaxCLLFind::GetFrame(int n, IScriptEnvironment *env) {
     PVideoFrame src = child->GetFrame(n, env);
 
-    int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
+    /*int planes_y[4] = {PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A};
     int planes_r[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
     int *planes = (vi.IsPlanarRGB() || vi.IsPlanarRGBA()) ? planes_r : planes_y;
     
@@ -372,12 +351,12 @@ PVideoFrame MaxCLLFind::GetFrame(int n, IScriptEnvironment *env) {
             allSrc32aligned = false;
 
         if (allSrc32aligned) {
-            processor_32aligned_(ptr, pitch, width, height, n);
+            (*this.*processor_32aligned_)(ptr, pitch, width, height, n);
         }
-        else {
-            processor_(ptr, pitch, width, height, n);
-        }
-    }
+        else {*/
+            (*this.*processor_)(src, n);
+        /* }
+    }*/
 	if (framesCounted++ % 100 == 0) {
 		writeCLLStats();
 	}
@@ -385,17 +364,12 @@ PVideoFrame MaxCLLFind::GetFrame(int n, IScriptEnvironment *env) {
     return src;
 }
 
-const int MAXFALL_OFFICIAL = 0;
-const int MAXFALL_ALLCHANNELS = 1;
-
-int maxFallAlgorithm = 0;
-
 AVSValue __cdecl create_maxcllfind(AVSValue args, void* user_data, IScriptEnvironment* env) {
 
 	// Algorithms for MaxFALL frame averaging (default 0)
 	// 0 = SMPTE2084 recommendation (average of highest channels of all pixels)
 	// 1 = Average of all channels of all pixels
-	maxFallAlgorithm = args[1].AsInt(MAXFALL_OFFICIAL);
+    MaxCLLFind::MaxFallAlgorithm maxFallAlgorithm = (MaxCLLFind::MaxFallAlgorithm)args[1].AsInt(MaxCLLFind::MaxFallAlgorithm::MAXFALL_OFFICIAL);
 
 	auto clip = args[0].AsClip();
 	auto vi = clip->GetVideoInfo();
@@ -411,7 +385,7 @@ AVSValue __cdecl create_maxcllfind(AVSValue args, void* user_data, IScriptEnviro
 		nitArray[i] = eotf_ST2084((float)i / (float)possibleValues);
 	}
 
-    return new MaxCLLFind(clip, env);
+    return new MaxCLLFind(clip, env, maxFallAlgorithm);
 }
 
 const AVS_Linkage *AVS_linkage = nullptr;
