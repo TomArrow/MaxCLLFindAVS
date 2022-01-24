@@ -5,7 +5,13 @@
 
 class MaxCLLFind : public GenericVideoFilter {
 public:
-    MaxCLLFind(PClip clip, IScriptEnvironment* env, int maxFallAlgorithm);
+    enum MaxFallAlgorithm {
+        MAXFALL_NONE = -1,
+        MAXFALL_OFFICIAL = 0,
+        MAXFALL_ALLCHANNELS = 1
+    };
+
+    MaxCLLFind(PClip clip, IScriptEnvironment* env, MaxFallAlgorithm maxFallAlgorithm);
     PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
     ~MaxCLLFind();
     

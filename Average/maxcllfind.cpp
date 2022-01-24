@@ -148,22 +148,20 @@ void MaxCLLFind::dofindmaxcll_c(const PVideoFrame src, int thisFrame) {
                 lowestFrame = thisFrame;
             }
 
-            if (maxFallAlgorithm == MAXFALL_ALLCHANNELS) {
-
+            switch (maxFallAlgorithm) {
+            case MAXFALL_NONE:
+                break;
+            case MAXFALL_ALLCHANNELS:
                 CLLSum += nits;
                 CLLvalueCount++;
-            }
-            else {
-
+                break;
+            case MAXFALL_OFFICIAL:
                 int channel = x % 3;
                 channelNits[channel] = nits;
-
                 if (channel == 2) {
                     // we passed through R, G and B and populated channelNits, so we can now calculate their max and use it for CLLSum which in turn gets used for MaxFALL. 
-
                     maxChannelNits = std::max(channelNits[0], channelNits[1]);
                     maxChannelNits = std::max(maxChannelNits, channelNits[2]);
-
                     CLLSum += maxChannelNits;
                     CLLvalueCount++;
                 }
@@ -183,7 +181,7 @@ void MaxCLLFind::dofindmaxcll_c(const PVideoFrame src, int thisFrame) {
 }
 
 
-MaxCLLFind::MaxCLLFind(PClip clip, IScriptEnvironment* env, int maxFallAlgorithm)
+MaxCLLFind::MaxCLLFind(PClip clip, IScriptEnvironment* env, MaxFallAlgorithm maxFallAlgorithm)
     : GenericVideoFilter(clip)
     , highestrawvalue(0)
     , highestFrame(0)
@@ -315,9 +313,12 @@ void MaxCLLFind::writeCLLStats() {
 	myfile << "Stats at frame " << framesCounted << ":\n";
 	myfile << "MaxCLL: " << highestnits << ", raw value: " << highestrawvalue << " " << highestFloatvalue << " at X " << highestValueX << " Y " << highestValueY << " at frame " << highestFrame << /*" byte depth: " << sizeof(pixel_t) <<*/ "\n";
 	myfile << "MinCLL: " << lowestnits << ", raw value: " << lowestrawvalue << " " << lowestFloatvalue << " at X " << lowestValueX << " Y " << lowestValueY << " at frame " << lowestFrame << /*" byte depth: " << sizeof(pixel_t) <<*/ "\n";
-	myfile << "MaxFALL: " << MaxFALL << " at frame " << MaxFALLFrame << "\n";
-	myfile << "FALL Average: " << FALLAverage << " across " << framesCounted << " frames.\n\n";
-	//myfile << "Dims: " << width << "x" << height;
+    if (maxFallAlgorithm != MAXFALL_NONE) {
+        myfile << "MaxFALL: " << MaxFALL << " at frame " << MaxFALLFrame << "\n";
+        myfile << "FALL Average: " << FALLAverage << " across " << framesCounted << " frames.\n";
+    }
+    //myfile << "Dims: " << width << "x" << height;
+    myfile << "\n";
 	myfile.close();
 }
 
@@ -363,15 +364,12 @@ PVideoFrame MaxCLLFind::GetFrame(int n, IScriptEnvironment *env) {
     return src;
 }
 
-const int MAXFALL_OFFICIAL = 0;
-const int MAXFALL_ALLCHANNELS = 1;
-
 AVSValue __cdecl create_maxcllfind(AVSValue args, void* user_data, IScriptEnvironment* env) {
 
 	// Algorithms for MaxFALL frame averaging (default 0)
 	// 0 = SMPTE2084 recommendation (average of highest channels of all pixels)
 	// 1 = Average of all channels of all pixels
-	int maxFallAlgorithm = args[1].AsInt(MAXFALL_OFFICIAL);
+    MaxCLLFind::MaxFallAlgorithm maxFallAlgorithm = (MaxCLLFind::MaxFallAlgorithm)args[1].AsInt(MaxCLLFind::MaxFallAlgorithm::MAXFALL_OFFICIAL);
 
 	auto clip = args[0].AsClip();
 	auto vi = clip->GetVideoInfo();
