@@ -3,15 +3,17 @@
 #include <stdint.h>
 #include <string>
 
+enum MaxFallAlgorithm {
+    MAXFALL_NONE = -1,
+    MAXFALL_OFFICIAL = 0,
+    MAXFALL_ALLCHANNELS = 1
+};
+
+template<MaxFallAlgorithm maxFallAlgorithm, int components_per_pixel>
 class MaxCLLFind : public GenericVideoFilter {
 public:
-    enum MaxFallAlgorithm {
-        MAXFALL_NONE = -1,
-        MAXFALL_OFFICIAL = 0,
-        MAXFALL_ALLCHANNELS = 1
-    };
 
-    MaxCLLFind(PClip clip, IScriptEnvironment* env, MaxFallAlgorithm maxFallAlgorithm, bool hasAlphaComponent);
+    MaxCLLFind(PClip clip, IScriptEnvironment* env, float* nitArray);
     PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
     ~MaxCLLFind();
     
@@ -25,8 +27,8 @@ private:
     void dofindmaxcll_c(const PVideoFrame src, int thisFrame);
 
     decltype(&dofindmaxcll_c<uint8_t, 8>) processor_;
-    const bool components_per_pixel;
-    
+    float const* const nitArray;
+
     // MaxcLL
     unsigned int highestrawvalue;
     unsigned int highestFrame;
@@ -46,7 +48,6 @@ private:
     long framesCounted;
 
     // MaxFALL
-    const int maxFallAlgorithm;
     float MaxFALL;
     unsigned int MaxFALLFrame;
 
