@@ -271,7 +271,8 @@ MaxCLLFind<maxFallAlgorithm, components_per_pixel>::MaxCLLFind(PClip clip, IScri
       }
     }
     else {*/
-    if (bits_per_pixel) {
+    if (bits_per_pixel != 16) {
+        env->ThrowError("MaxCLLFind: can only process 16 bits per channel");
     }
     processor_ = &MaxCLLFind::dofindmaxcll_c<uint16_t, 16>;
     
