@@ -23,10 +23,13 @@ public:
 
 private:
     void writeCLLStats();
-    template<typename pixel_t, int bits_per_pixel>
-    void dofindmaxcll_c(const PVideoFrame src, int thisFrame);
 
-    decltype(&dofindmaxcll_c<uint8_t, 8>) processor_;
+    template<typename pixel_t, int bits_per_pixel>
+    void dofindmaxcll_packed_c(const PVideoFrame src, int thisFrame);
+    template<typename pixel_t, int bits_per_pixel>
+    void dofindmaxcll_planar_c(const PVideoFrame src, int thisFrame);
+
+    decltype(&dofindmaxcll_packed_c<uint8_t, 8>) processor_;
     float const* const nitArray;
 
     // MaxcLL
