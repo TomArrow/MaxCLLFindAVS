@@ -144,7 +144,7 @@ void MaxCLLFind<maxFallAlgorithm, components_per_pixel>::dofindmaxcll_planar_c(c
                     highestrawvalue = currentvalue;
                     highestFloatvalue = currentvalueFloat;
                     highestValueX = x;
-                    highestValueY = height - y - 1;
+                    highestValueY = y;
                     highestFrame = thisFrame;
                 }
                 if (currentvalue < lowestrawvalue) {
@@ -154,7 +154,7 @@ void MaxCLLFind<maxFallAlgorithm, components_per_pixel>::dofindmaxcll_planar_c(c
                     lowestrawvalue = currentvalue;
                     lowestFloatvalue = currentvalueFloat;
                     lowestValueX = x;
-                    lowestValueY = height - y - 1;
+                    lowestValueY = y;
                     lowestFrame = thisFrame;
                 }
                 switch (maxFallAlgorithm) {
