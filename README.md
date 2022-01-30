@@ -13,7 +13,7 @@ clip.MaxCLLFind()
 ```
 Load in VirtualDub and click Play. After video is finished playing, close VirtualDub. The plugin also writes the Average FALL (frame average light level) into the text file. If you want this result to be accurate, make sure to not load any frame more than once.
 
-If your HDR clip isn't RGB64, convert it first. This plugin only accepts RGB64 input. 
+This plugin only accepts RGB inputs. If your HDR clip isn't RGB, convert it first. 
 
 For example, let's say you are loading a HDR HEVC YUV file, do this:
 ```
@@ -21,12 +21,20 @@ clip = clip.ConvertToRGB64(matrix="Rec2020")
 clip.MaxCLLFind()
 ```
 
+Supported are the packed RGB formats RGB24, RGB32, RGB48, RGB64 and the planar RGB formats RGBP8, RGBP10, RGBP12, RGBP14, RGBP16. It is not advisable to use the formats RGB24, RGB32 and RGBP8 for HDR clips. The planar formats are processed about 30% faster than the packed formats, however the default maxFall calculation is unsuppored for them.
+
 ### Alternate MaxFALL algorithm
 The default MaxFALL algorithm uses the SMPTE recommendation of averaging max(R,G,B) across all pixels, meaning the brightest channel of each pixel goes into the average. If you want the average of all channels of all pixels (not the official recommendation) instead, do this:
 ```
 clip.MaxCLLFind(maxFallAlgorithm=1)
 ```
 This is more for your own curiosity and might lead to playback problems like flickering if used as actual HDR metadata, since it typically leads to typically slightly lower average intensity readings and if the TV bases its own dimming on the official recommendation, it might dim the image when it reaches a higher FALL than your calculated MaxFALL, which will almost certainly happen. 
+
+The official maxFall algorithm is not supported by the planar formats. If your input is planar either disable the maxFall calculation or use the unofficial algorithm or convert your clip to a packed format like RGB48. The maxFall calculation is disabled by:
+
+```
+clip.MaxCLLFind(maxFallAlgorithm=-1)
+```
 
 ### Word of caution
 
