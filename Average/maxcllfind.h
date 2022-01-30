@@ -4,9 +4,9 @@
 #include <string>
 
 enum MaxFallAlgorithm {
-    MAXFALL_NONE = -1,
-    MAXFALL_OFFICIAL = 0,
-    MAXFALL_ALLCHANNELS = 1
+    MAXFALL_NONE = 0,
+    MAXFALL_OFFICIAL = 1,
+    MAXFALL_ALLCHANNELS = 2
 };
 
 template<MaxFallAlgorithm maxFallAlgorithm, int components_per_pixel>
